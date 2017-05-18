@@ -30,7 +30,7 @@ def install_and_import(package):
     import importlib
     try:
         importlib.import_module(package)
-        print "Ckecking for package.."
+        print "Checking for package.."
     except ImportError:
         import pip
         pip.main(['install', package])
