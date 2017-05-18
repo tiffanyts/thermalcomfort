@@ -19,13 +19,28 @@ import matplotlib.mlab as ml
 from matplotlib.path import Path
 import matplotlib.patches as patches
 
-
 import numpy as np
 import pandas as pd
-import pyliburo
+#import pyliburo
 import pvlib
 import datetime
 import time
+
+def install_and_import(package):
+    import importlib
+    try:
+        importlib.import_module(package)
+        print "Package imported"
+    except ImportError:
+        import pip
+        pip.main(['install', package])
+        print "Import error"
+    finally:
+        globals()[package] = importlib.import_module(package)
+        print "Inside finally block"
+
+
+install_and_import('pyliburo')
 
 from OCC.Display import OCCViewer
 #from ExtraFunctions import *
@@ -453,4 +468,5 @@ def calc_SET(microclimate,ped_properties):
         s_set = microclimate['SET']= fsolve(func,0)[0]
     except NameError: s_set = np.nan
     return s_set
+
 
