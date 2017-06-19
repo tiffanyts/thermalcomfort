@@ -13,7 +13,9 @@ import ExtraFunctions
 import thermalcomfort 
 import pyliburo
 import pandas as pd
+install_and_import('easygui')
 
+import easygui
 print("Navigate to thermal comfort file ")
 thermalcomfortpath=easygui.fileopenbox()
 print("Navigate to Extra Functions file ")
@@ -39,9 +41,7 @@ def install_and_import(package):
         globals()[package] = importlib.import_module(package)
         print "Package installed"
 
-install_and_import('easygui')
 
-import easygui
 
 simdate = 'Today'
 current_path = os.path.dirname("__file__")
