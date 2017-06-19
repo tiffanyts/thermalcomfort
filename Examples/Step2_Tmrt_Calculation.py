@@ -15,6 +15,10 @@ from datetime import datetime, date, time
 
 current_path = os.path.dirname("__file__")
 parent_path = os.path.abspath(os.path.join(current_path, os.pardir))
+
+install_and_import('easygui')
+
+import easygui
 print("Navigate to thermal comfort file ")
 thermalcomfortpath=easygui.fileopenbox()
 import imp #importing is causing heaps of problems so we use imp to help us keep our directories straight. 
