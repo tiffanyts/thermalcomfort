@@ -11,6 +11,7 @@ This code is in three parts. After importing the necessary modules, the first se
 The second section provides the mean radiant temperature calculation. It is comprised of several smaller functions that are combined in sequence in the function all_mrt()
 The final section consists of the SET calculation, which relies on inputs as defined in the example.  
 
+@Suganya June 19'17 added code to automate installation of libraries.
 """
 #
 from scipy.optimize import fsolve
@@ -21,18 +22,38 @@ import matplotlib.patches as patches
 
 import numpy as np
 import pandas as pd
-import pyliburo
-import pvlib
+#import pyliburo
+#import pvlib
+
+#import pvlib
+
 import datetime
 import time
 
+def install_and_import(package):
+    import importlib
+    try:
+        importlib.import_module(package)
+        print "Checking for package.."
+    except ImportError:
+        import pip
+        pip.main(['install', package])
+        print "Package not available. Importing package.."
+    finally:
+        globals()[package] = importlib.import_module(package)
+        print "Package installed"
 
+install_and_import('pyliburo')
+install_and_import('pvlib')
+install_and_import('scipy')
+install_and_import('pandas')
+install_and_import('numpy')
 
 from OCC.Display import OCCViewer
 #from ExtraFunctions import *
 
 
-#%% Handling input and output data
+#%% Part 1)  Handling input and output data
 # To deal with spatial variability, we introduce the helper class 'pdcoord', which is a Pandas DataFrame of four columns (x, y, z, and value) columns.
 # This allows us to import and pass around detailed spatial data, like surface temperatures, air temperature, and wind speeds, and also to calculate SET and Tmrt in detail.  
 # We also include several functions to help visualize and manipulate our data.
@@ -208,35 +229,37 @@ def pdcoords_from_pedkeys(pedkeys_np, values = np.zeros(0)):
     empty = pdcoord(zip(pedkeys_np.transpose()[0], pedkeys_np.transpose()[1], pedkeys_np.transpose()[2],fill))
     return empty
 
+#%% Part 2) Radiation Model Functions
 
-#%% Radiation Model Functions
+#1) Calculate solar parameters
 
-"""
-1) Calculate solar parameters
-2) Calculate shadows, output pdcoord of shaded areas
-For each pedestrian location:
-3) Use fourpiradiation() to calculate sky view factor, list of visible intecept,
-    and number of remaining directions that hit the ground (groundN)
-4) Use call_values to call values of Ts, reflect, wall_albedo, wall_emissivity 
-    at intecepted locations on building surfaces
-5) Use calc_radiation_from_values() to return longwave & shortwave radiation from surfaces
-6) Use wall_emissivity*sigma*Ts**4*groundN/Ndir to calculate remaining ground longwave radiation
-7) Use E_dif*solarvf + E_sol*solarvf*shadowint for direct and diffuse solar radiation
-8) Tmrt = ((Eshort*(1-ped_albedo)+Elong)/sigma)**(1/4.)
+#For each pedestrian location:
+#2) Calculate shadow
+#3) Use fourpiradiation() to calculate sky view factor, list of visible intecept,
+#    and number of remaining directions that hit the ground (groundN)
+#4) Use call_values to call values of Ts, reflect, wall_albedo, wall_emissivity 
+#    at intecepted locations on building surfaces
+#5) Use calc_radiation_from_values() to return longwave & shortwave radiation from surfaces
+#6) Use wall_emissivity*sigma*Ts**4*groundN/Ndir to calculate remaining ground longwave radiation
+#7) Use E_dif*solarvf + E_sol*solarvf*shadowint for direct and diffuse solar radiation
+#8) Tmrt = ((Eshort*(1-ped_albedo)+Elong)/sigma)**(1/4.)
 
- """
 Ndir = 1000
 unitball = pyliburo.skyviewfactor.tgDirs(Ndir)
 sigma =5.67*10**(-8)  
 
-def solar_param((y,mo,d,h,mi),latitude,longitude, UTC_diff=0, groundalbedo=0.18):
+#%%
+
+def calc_solarparam(time_str,latitude,longitude, UTC_diff=0, groundalbedo=0.18):
     """ This function uses PVLib to calculate solar parameters. 
     Returns a DataFrame of solar vector, solar view factor, 
     direct solar radiation intensity, and diffuse solar radiation 
     intensities from the sky and the ground """
+
     time_shift = datetime.timedelta(hours=UTC_diff) #SGT is UTC+8    
-    thistime = pd.DatetimeIndex([pd.Timestamp(np.datetime64(datetime.datetime(y,mo,d,h,mi) + time_shift), tz='UTC')])  
-    thisloc = pvlib.location.Location(latitude, longitude, tz='UTC', altitude=0, name=None)
+    thistime =pd.DatetimeIndex(start=time_str, end=time_str, freq='1min') # pd.to_datetime(pd.Timestamp(casetime)) # pd.DatetimeIndex([pd.Timestamp(np.datetime64(datetime.datetime(y,mo,d,h,mi) + time_shift), tz='UTC')])  
+    #thistime = pd.DatetimeIndex([pd.to_datetime(time_str,format= '%B %d %Y %H:%M')])
+    thisloc = pvlib.location.Location(51.4826,  0.0077, tz='UTC', altitude=0, name=None)
     solpos = thisloc.get_solarposition(thistime)    
     
     sunpz = np.sin(np.radians(solpos.elevation[0])); hyp = np.cos(np.radians(solpos.elevation[0]))
@@ -258,7 +281,7 @@ def solar_param((y,mo,d,h,mi),latitude,longitude, UTC_diff=0, groundalbedo=0.18)
     'diffuse_frm_ground':[Ground_Diffuse]
     })    
     return results
-
+#%%
 
 def check_shadow(key, model, solarvector):
     occ_interpt, occ_interface = pyliburo.py3dmodel.calculate.intersect_shape_with_ptdir(model,key,solarvector)
@@ -314,7 +337,7 @@ def calc_Esky_emis(Ta,RH):
     return Esky
 
 def meanradtemp(Esky,Esurf, Eground,Ereflect, solarparam, SVF, GVF,  pedestrian_albedo, shadow=False):
-    """ calculates mean radiant temperature from different sources of radiation in the urban environment """
+    """ calculates Stefan-Boltzmann equation for mean radiant temperature, from different sources of radiation in the urban environment """
     sigma =5.67*10**(-8)
     Eshort =  solarparam.diffuse_frm_sky[0]*SVF/2 + solarparam.diffuse_frm_ground[0]*GVF/2 + solarparam.direct_sol[0]*solarparam.solarviewfactor[0]*shadow+ Ereflect 
     Elong = Esky*SVF/2+Esurf+Eground
@@ -329,32 +352,36 @@ def meanradtemp(Esky,Esurf, Eground,Ereflect, solarparam, SVF, GVF,  pedestrian_
     return results
 
 def all_mrt(key,compound,pdAirTemp,pdReflect,pdSurfTemp,solarparam,model_inputs,ped_properties,gridsize=1):
-    """ Accepts dataframe of solar parameters, model inputs"""
+    """ Accepts dataframe of solar parameters, model inputs. This function calls all the previous functions in order to calculate each component needed in the Stefan-Boltzmann equation for mean radiant temperature."""
     sigma =5.67*10**(-8)
+
     RH = model_inputs.RH[0]
-    try: Esky =np.mean(calc_Esky_emis(pdAirTemp.val_at_coord(key).v, RH))
-    except AttributeError: Esky = calc_Esky_emis(pdAirTemp, RH)
-    svf, gvf, intercepts = fourpiradiation(key, compound) #interceptped
-
-    shadowint = check_shadow(key, compound,solarparam.solarvector[0])
-
-    try: SurfTemp =call_values(intercepts, pdSurfTemp, gridsize)
-    except AttributeError: SurfTemp = [pdSurfTemp]*len(intercepts)
     
-    try: SurfReflect =call_values(intercepts, pdReflect, gridsize)
+    try: Esky =np.mean(calc_Esky_emis(pdAirTemp.val_at_coord(key).v, RH)) #Calculation of sky irradiance if air temperature is a pdcoord
+    except AttributeError: Esky = calc_Esky_emis(pdAirTemp, RH) #calculation of Esky if air temperature is a bulk value
+  
+    
+    svf, gvf, intercepts = fourpiradiation(key, compound) #Calculate Sky view factor, ground view factor, and locations ('intercepts') on the wall at which WVF and wall temperatures need to be retrieved. 
+
+    shadowint = check_shadow(key, compound,solarparam.solarvector[0]) #Check if the pedestrian is in a shaded area
+
+    try: SurfTemp =call_values(intercepts, pdSurfTemp, gridsize) # Retrieve surface temperatures at the wall intercepts if surface temperature is a pdcoord
+    except AttributeError: SurfTemp = [pdSurfTemp]*len(intercepts) # If not, and surface temperature is constant, get a list of the bulk surface temperature according to the number of intercepts (this is like a wall view factor)
+    
+    try: SurfReflect =call_values(intercepts, pdReflect, gridsize) #Same as surface temperature. 
     except AttributeError: SurfReflect = [pdReflect]*len(intercepts)
 
-    if np.isnan(SurfTemp).any():
+    if np.isnan(SurfTemp).any(): #If any of the intercept locations do not have a corresponding surface temperature in the input data, warn the user; treat it as sky.
         print 'Warning: ' , sum(np.isnan(SurfTemp)), ' intercepts do not have values. Treated as Sky'
         SurfTemp = SurfTemp[~np.isnan(SurfTemp)]
         SurfReflect = SurfReflect[~np.isnan(SurfReflect)]
         svf+=sum(np.isnan(SurfTemp))/Ndir
         
-    SurfAlbedo, SurfEmissivity =  [[x]*len(SurfTemp) for x in [model_inputs.wall_albedo[0], model_inputs.wall_emissivity[0]]] #instead of call values
-    Elwall, Eswall = calc_radiation_from_values(SurfTemp, SurfReflect, SurfEmissivity)
-    Eground = model_inputs.ground_emissivity[0]*sigma*gvf/2*model_inputs.groundtemp[0]**4
+    SurfAlbedo, SurfEmissivity =  [[x]*len(SurfTemp) for x in [model_inputs.wall_albedo[0], model_inputs.wall_emissivity[0]]] # Repeat surface albedo and emissivity for the same number (N_intercepts) of intercepts. These could be coded differently to be treated as detailed pdcoords. 
+    Elwall, Eswall = calc_radiation_from_values(SurfTemp, SurfReflect, SurfEmissivity) #Calculate radiation based on the four parameters. Surf Albedo not included since SurfReflect already accounts for albedo. 
+    Eground = model_inputs.ground_emissivity[0]*sigma*gvf/2*model_inputs.groundtemp[0]**4 # Calculate radiation from the ground based on the ground temperature.
     
-    mrtresults =  meanradtemp(Esky,Elwall, Eground,Eswall, solarparam, svf,gvf, ped_properties.body_albedo[0], shadow=shadowint)
+    mrtresults =  meanradtemp(Esky,Elwall, Eground,Eswall, solarparam, svf,gvf, ped_properties.body_albedo[0], shadow=shadowint) #calculate Tmrt according to stefan-boltzmann. 
                          
     results = pd.DataFrame({
     'TMRT':[mrtresults.TMRT[0]],
@@ -378,6 +405,8 @@ def calc_SET(microclimate,ped_properties):
     ped_properties:  DataFrame with columns 
     ped_constants: Properties of a typical standing person. Dataframe with columns       'eff_radiation_surface_area_ratio'
     microclimate: DataFrame with columns        'air_temperature','wind_speed','mean_radiant_temperature','RH'
+    
+    See Gagge 1986 and the thesis that accompanies this GitHub (Sin 2017) for details on each variable. 
     """
     k=0.155; #unit conversion factor for 1clo to m^2*K/W
     pt=101.325;   #local atmosphere presssure in kPa
@@ -454,4 +483,6 @@ def calc_SET(microclimate,ped_properties):
         s_set = microclimate['SET']= fsolve(func,0)[0]
     except NameError: s_set = np.nan
     return s_set
+
+
 
